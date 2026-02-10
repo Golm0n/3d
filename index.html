@@ -2,127 +2,100 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>Smithsonian 3D Explorer</title>
+    <title>3D Explorer</title>
     <style>
         body { margin: 0; background: #0a0a0a; overflow: hidden; font-family: 'Segoe UI', sans-serif; color: white; }
-        #ui { position: absolute; top: 20px; left: 20px; background: rgba(0,0,0,0.9); padding: 20px; border-radius: 12px; border: 1px solid #444; width: 320px; z-index: 10; }
-        h2 { margin: 0 0 10px 0; font-size: 18px; color: #ffac00; }
-        #status { font-size: 14px; margin-bottom: 15px; color: #bbb; min-height: 40px; }
-        button { background: #ffac00; color: #000; border: none; padding: 12px; cursor: pointer; font-weight: bold; width: 100%; border-radius: 6px; }
-        button:disabled { background: #333; color: #666; cursor: not-allowed; }
-        #metadata { margin-top: 15px; font-size: 11px; border-top: 1px solid #333; padding-top: 10px; opacity: 0.8; line-height: 1.4; }
+        #ui { position: absolute; top: 20px; right: 20px; background: rgba(0,0,0,0.85); padding: 15px; border-radius: 8px; border: 1px solid #333; width: 280px; z-index: 10; backdrop-filter: blur(10px); }
+        h2 { margin: 0 0 8px 0; font-size: 16px; color: #1caad9; font-weight: 600; }
+        #status { font-size: 12px; margin-bottom: 12px; color: #999; min-height: 30px; }
+        button { background: #1caad9; color: white; border: none; padding: 10px; cursor: pointer; font-weight: 600; width: 100%; border-radius: 6px; font-size: 13px; transition: all 0.3s; }
+        button:hover { background: #1590b8; transform: translateY(-1px); }
+        button:disabled { background: #333; color: #666; cursor: not-allowed; transform: none; }
+        #metadata { margin-top: 12px; font-size: 10px; border-top: 1px solid #333; padding-top: 10px; opacity: 0.7; line-height: 1.5; }
+        #viewer { width: 100%; height: 100vh; }
+        .info { background: rgba(28, 170, 217, 0.08); padding: 8px; border-radius: 4px; margin-top: 8px; font-size: 11px; border-left: 2px solid #1caad9; }
     </style>
 </head>
 <body>
 
     <div id="ui">
-        <h2>Smithsonian 3D Explorer</h2>
-        <div id="status">En attente de la clé...</div>
-        <button id="btn" onclick="getRandomModel()">CHARGER UN OBJET ALÉATOIRE</button>
-        <div id="metadata">Recherche parmi des milliers de scans réels (NMNH).</div>
+        <h2>Random 3D</h2>
+        <div id="status">Prêt...</div>
+        <button id="btn" onclick="loadRandomModel()">Nouveau modèle</button>
+        <div id="metadata">
+            <div class="info">
+                Exploration aléatoire
+            </div>
+        </div>
     </div>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
-    
-    <script src="config.js"></script>
+    <iframe id="viewer" frameborder="0" allowfullscreen mozallowfullscreen="true" webkitallowfullscreen="true"></iframe>
 
     <script>
-        // Vérification si la config est bien chargée
-        if (typeof CONFIG === 'undefined') {
-            document.getElementById('status').innerHTML = "<span style='color:red;'>Erreur : config.js introuvable !</span>";
-        } else {
-            document.getElementById('status').innerText = "Prêt à explorer.";
-        }
+        let isLoading = false;
 
-        const scene = new THREE.Scene();
-        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 5000);
-        const renderer = new THREE.WebGLRenderer({ antialias: true });
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.toneMapping = THREE.ACESFilmicToneMapping;
-        renderer.outputEncoding = THREE.sRGBEncoding;
-        document.body.appendChild(renderer.domElement);
-
-        scene.add(new THREE.AmbientLight(0xffffff, 0.8));
-        const dirLight = new THREE.DirectionalLight(0xffffff, 1);
-        dirLight.position.set(5, 10, 7);
-        scene.add(dirLight);
-
-        const controls = new THREE.OrbitControls(camera, renderer.domElement);
-        controls.enableDamping = true;
-
-        let currentModel = null;
-        const loader = new THREE.GLTFLoader();
-
-        async function getRandomModel() {
+        async function loadRandomModel() {
+            if (isLoading) return;
+            
             const btn = document.getElementById('btn');
             const status = document.getElementById('status');
             const meta = document.getElementById('metadata');
+            const viewer = document.getElementById('viewer');
             
+            isLoading = true;
             btn.disabled = true;
-            status.innerText = "Interrogation de l'API...";
-            
+            status.innerText = "Chargement...";
+
             try {
-                // On utilise un offset aléatoire pour varier les objets
+                // Offset aléatoire pour obtenir des modèles différents à chaque fois
                 const randomOffset = Math.floor(Math.random() * 1000);
-                const searchUrl = `https://api.si.edu/openaccess/api/v1.0/search?api_key=${CONFIG.SMITHSONIAN_API_KEY}&q=online_visual_material:true AND unit_code:NMNH&rows=1&start=${randomOffset}`;
+                
+                // API Sketchfab - recherche complètement aléatoire dans tous les modèles
+                const searchUrl = `https://api.sketchfab.com/v3/models?type=models&count=48&sort_by=-likeCount&cursor=${randomOffset}`;
                 
                 const response = await fetch(searchUrl);
                 const data = await response.json();
                 
-                if (!data.response.rows || data.response.rows.length === 0) throw new Error("Aucun objet");
-
-                const item = data.response.rows[0];
-                const id = item.id;
-                const title = item.title;
-                
-                // URL directe vers le fichier .glb hébergé par le Smithsonian
-                const glbUrl = `https://3d-api.si.edu/content/document/${id}/model.glb`;
-
-                status.innerText = "Téléchargement du scan 3D...";
-                
-                if (currentModel) scene.remove(currentModel);
-
-                loader.load(glbUrl, (gltf) => {
-                    currentModel = gltf.scene;
-                    scene.add(currentModel);
-
-                    const box = new THREE.Box3().setFromObject(currentModel);
-                    const center = box.getCenter(new THREE.Vector3());
-                    const size = box.getSize(new THREE.Vector3());
-                    currentModel.position.sub(center);
-                    
-                    const maxDim = Math.max(size.x, size.y, size.z);
-                    camera.position.set(maxDim * 1.5, maxDim, maxDim * 1.5);
-                    camera.lookAt(0,0,0);
-
-                    status.innerText = "Chargé avec succès !";
-                    meta.innerHTML = `<strong>Titre :</strong> ${title}<br><strong>ID :</strong> ${id}`;
+                if (!data.results || data.results.length === 0) {
+                    status.innerText = "Aucun modèle trouvé, réessayez...";
                     btn.disabled = false;
-                }, undefined, (err) => {
-                    status.innerText = "Fichier indisponible, essai suivant...";
-                    btn.disabled = false;
-                    getRandomModel(); // Réessaie automatiquement si le fichier 3D est manquant
-                });
+                    isLoading = false;
+                    return;
+                }
+
+                // Sélectionner un modèle aléatoire parmi les résultats
+                const randomModel = data.results[Math.floor(Math.random() * data.results.length)];
+                const modelUid = randomModel.uid;
+                const title = randomModel.name;
+                const author = randomModel.user.displayName;
+                const viewCount = randomModel.viewCount;
+                const likeCount = randomModel.likeCount;
+                const categories = randomModel.categories ? randomModel.categories.map(c => c.name).join(', ') : 'Non catégorisé';
+
+                // Charger le modèle dans l'iframe
+                viewer.src = `https://sketchfab.com/models/${modelUid}/embed?autostart=1&ui_theme=dark`;
+
+                status.innerText = "✓ Chargé";
+                meta.innerHTML = `
+                    <strong>${title}</strong><br>
+                    <span style="opacity: 0.7;">par ${author}</span><br>
+                    <span style="opacity: 0.5; font-size: 10px;">vue ${viewCount.toLocaleString()}</span>
+                `;
+
+                btn.disabled = false;
+                isLoading = false;
 
             } catch (err) {
-                status.innerText = "Erreur API. Vérifiez votre clé.";
+                console.error(err);
+                status.innerText = "Erreur de chargement. Réessayez.";
                 btn.disabled = false;
+                isLoading = false;
             }
         }
 
-        function animate() {
-            requestAnimationFrame(animate);
-            controls.update();
-            renderer.render(scene, camera);
-        }
-        animate();
-
-        window.addEventListener('resize', () => {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
+        // Charger un premier modèle au démarrage
+        window.addEventListener('load', () => {
+            setTimeout(loadRandomModel, 1000);
         });
     </script>
 </body>
