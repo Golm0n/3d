@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Smithsonian 3D Explorer</title>
+    <style>
+        body { margin: 0; background: #0a0a0a; overflow: hidden; font-family: 'Segoe UI', sans-serif; color: white; }
+        #ui { position: absolute; top: 20px; left: 20px; background: rgba(0,0,0,0.9); padding: 20px; border-radius: 12px; border: 1px solid #444; width: 320px; z-index: 10; }
+        h2 { margin: 0 0 10px 0; font-size: 18px; color: #ffac00; }
+        #status { font-size: 14px; margin-bottom: 15px; color: #bbb; min-height: 40px; }
+        button { background: #ffac00; color: #000; border: none; padding: 12px; cursor: pointer; font-weight: bold; width: 100%; border-radius: 6px; }
+        button:disabled { background: #333; color: #666; cursor: not-allowed; }
+        #metadata { margin-top: 15px; font-size: 11px; border-top: 1px solid #333; padding-top: 10px; opacity: 0.8; line-height: 1.4; }
+    </style>
+</head>
+<body>
+
+    <div id="ui">
+        <h2>Smithsonian 3D Explorer</h2>
+        <div id="status">En attente de la clé...</div>
+        <button id="btn" onclick="getRandomModel()">CHARGER UN OBJET ALÉATOIRE</button>
+        <div id="metadata">Recherche parmi des milliers de scans réels (NMNH).</div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    
+    <script src="config.js"></script>
+
+    <script>
+        // Vérification si la config est bien chargée
+        if (typeof CONFIG === 'undefined') {
+            document.getElementById('status').innerHTML = "<span style='color:red;'>Erreur : config.js introuvable !</span>";
+        } else {
+            document.getElementById('status').innerText = "Prêt à explorer.";
+        }
+
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 5000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.outputEncoding = THREE.sRGBEncoding;
+        document.body.appendChild(renderer.domElement);
+
+        scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+        const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+        dirLight.position.set(5, 10, 7);
+        scene.add(dirLight);
+
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+
+        let currentModel = null;
+        const loader = new THREE.GLTFLoader();
+
+        async function getRandomModel() {
+            const btn = document.getElementById('btn');
+            const status = document.getElementById('status');
+            const meta = document.getElementById('metadata');
+            
+            btn.disabled = true;
+            status.innerText = "Interrogation de l'API...";
+            
+            try {
+                // On utilise un offset aléatoire pour varier les objets
+                const randomOffset = Math.floor(Math.random() * 1000);
+                const searchUrl = `https://api.si.edu/openaccess/api/v1.0/search?api_key=${CONFIG.SMITHSONIAN_API_KEY}&q=online_visual_material:true AND unit_code:NMNH&rows=1&start=${randomOffset}`;
+                
+                const response = await fetch(searchUrl);
+                const data = await response.json();
+                
+                if (!data.response.rows || data.response.rows.length === 0) throw new Error("Aucun objet");
+
+                const item = data.response.rows[0];
+                const id = item.id;
+                const title = item.title;
+                
+                // URL directe vers le fichier .glb hébergé par le Smithsonian
+                const glbUrl = `https://3d-api.si.edu/content/document/${id}/model.glb`;
+
+                status.innerText = "Téléchargement du scan 3D...";
+                
+                if (currentModel) scene.remove(currentModel);
+
+                loader.load(glbUrl, (gltf) => {
+                    currentModel = gltf.scene;
+                    scene.add(currentModel);
+
+                    const box = new THREE.Box3().setFromObject(currentModel);
+                    const center = box.getCenter(new THREE.Vector3());
+                    const size = box.getSize(new THREE.Vector3());
+                    currentModel.position.sub(center);
+                    
+                    const maxDim = Math.max(size.x, size.y, size.z);
+                    camera.position.set(maxDim * 1.5, maxDim, maxDim * 1.5);
+                    camera.lookAt(0,0,0);
+
+                    status.innerText = "Chargé avec succès !";
+                    meta.innerHTML = `<strong>Titre :</strong> ${title}<br><strong>ID :</strong> ${id}`;
+                    btn.disabled = false;
+                }, undefined, (err) => {
+                    status.innerText = "Fichier indisponible, essai suivant...";
+                    btn.disabled = false;
+                    getRandomModel(); // Réessaie automatiquement si le fichier 3D est manquant
+                });
+
+            } catch (err) {
+                status.innerText = "Erreur API. Vérifiez votre clé.";
+                btn.disabled = false;
+            }
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
